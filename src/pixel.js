@@ -2,8 +2,8 @@
  * 图片 → 设备帧（105984 字节）流水线
  *
  * RN 里没有 canvas.getImageData，所以走这条路：
- *   ImageManipulator 旋转/缩放/裁剪  →  JPEG
- *   FileSystem 读 base64            →  jpeg-js 解码成 RGBA
+ *   ImageManipulator 旋转/缩放/裁剪  →  JPEG + base64（一次拿到，不落盘再读）
+ *   base64 → 字节 → jpeg-js 解码成 RGBA
  *   src/image.js 量化 + 2bpp 打包    →  Uint8Array(105984)
  *   src/png.js 生成预览 data URI
  *
@@ -17,9 +17,6 @@ import jpeg from 'jpeg-js';
 import P from './protocol';
 import IMG from './image';
 import { rgbaToDataUri, downsampleRGBA } from './png';
-
-// SDK 54 起 expo-file-system 改为新 API，老接口在 /legacy 下
-import * as FileSystem from 'expo-file-system/legacy';
 
 const W = P.PANEL.WIDTH;
 const H = P.PANEL.HEIGHT;
@@ -93,14 +90,17 @@ export async function buildFrame(uri, rotateDeg = 0) {
         },
       },
     ],
-    { compress: 1, format: ImageManipulator.SaveFormat.JPEG },
+    // base64: true 让 manipulateAsync 直接把像素数据一并返回，
+    // 省掉「写盘 → 再读回来」这一步，也不依赖 expo-file-system
+    { compress: 1, format: ImageManipulator.SaveFormat.JPEG, base64: true },
   );
 
   // 2) 解码成 RGBA
-  const b64 = await FileSystem.readAsStringAsync(result.uri, {
-    encoding: FileSystem.EncodingType.Base64,
+  if (!result.base64) throw new Error('ImageManipulator 未返回 base64 数据');
+  const decoded = jpeg.decode(base64ToBytes(result.base64), {
+    useTArray: true,
+    maxMemoryUsageInMB: 256,
   });
-  const decoded = jpeg.decode(base64ToBytes(b64), { useTArray: true, maxMemoryUsageInMB: 256 });
   if (decoded.width !== W || decoded.height !== H) {
     throw new Error(`裁剪后尺寸异常：${decoded.width}×${decoded.height}`);
   }

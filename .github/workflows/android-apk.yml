@@ -27,6 +27,7 @@ concurrency:
 # 需要写 Release 和上传产物
 permissions:
   contents: write
+  actions: write
 
 env:
   NODE_VERSION: '22'
@@ -121,10 +122,21 @@ jobs:
             --json > eas-build.json 2> eas-build.err || true
 
           echo "----- EAS 日志（尾部） -----"
-          tail -60 eas-build.err || true
+          tail -200 eas-build.err || true
           echo "---------------------------"
 
           node scripts/parse-build.js eas-build.json
+
+      - name: 失败时上传 EAS 日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eas-build-logs
+          path: |
+            eas-build.json
+            eas-build.err
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: 下载 APK
         env:
