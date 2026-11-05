@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import P from '../protocol';
+import { ensureBlePermissions, openAppSettings, isAndroid } from '../permissions';
 import { s, theme } from '../theme';
 
 export default function DeviceScreen({ ctx }) {
@@ -15,6 +16,28 @@ export default function DeviceScreen({ ctx }) {
 
   const onScan = useCallback(async () => {
     if (scanning) return;
+
+    // Android 12+ 必须先拿到「附近的设备」运行时权限，否则系统直接拒绝扫描
+    if (isAndroid()) {
+      const perm = await ensureBlePermissions();
+      if (!perm.granted) {
+        log(`缺少蓝牙权限：${(perm.denied || []).join(', ')}`);
+        if (perm.neverAskAgain) {
+          Alert.alert(
+            '需要蓝牙权限',
+            '系统已拒绝且不再询问。请到「设置 → 应用 → 墨水屏日历 → 权限 → 附近的设备」手动允许。',
+            [
+              { text: '取消', style: 'cancel' },
+              { text: '去设置', onPress: openAppSettings },
+            ],
+          );
+        } else {
+          Alert.alert('需要蓝牙权限', '扫描设备需要「附近的设备」权限，请允许后重试。');
+        }
+        return;
+      }
+    }
+
     setScanning(true);
     setDevices([]);
     try {

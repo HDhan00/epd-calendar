@@ -50,7 +50,7 @@ export default function PhotoScreen({ ctx }) {
       return;
     }
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       quality: 1,
       exif: false,
     });

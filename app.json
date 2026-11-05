@@ -2,7 +2,7 @@
   "expo": {
     "name": "墨水屏日历",
     "slug": "esp32",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "epdcalendar",
@@ -16,7 +16,9 @@
       "backgroundColor": "#f7f3e8",
       "resizeMode": "contain"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "infoPlist": {
@@ -26,7 +28,6 @@
     },
     "android": {
       "package": "com.panyihang.epdcalendar",
-      "versionCode": 1,
       "permissions": [
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
@@ -40,7 +41,9 @@
         "react-native-ble-plx",
         {
           "isBackgroundEnabled": false,
-          "modes": ["central"],
+          "modes": [
+            "central"
+          ],
           "bluetoothAlwaysPermission": "允许「墨水屏日历」连接墨水屏设备"
         }
       ],
