@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "墨水屏日历",
-    "slug": "epd-calendar",
+    "slug": "esp32",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
