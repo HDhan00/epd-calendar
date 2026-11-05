@@ -7,22 +7,22 @@
     "start": "expo start",
     "android": "expo run:android",
     "build:apk": "eas build -p android --profile preview",
-    "build:dev": "eas build -p android --profile development"
+    "build:dev": "eas build -p android --profile development",
+    "test": "node scripts/selftest.js"
   },
   "dependencies": {
-    "expo": "~54.0.0",
-    "expo-file-system": "~18.0.0",
-    "expo-image-manipulator": "~13.0.0",
-    "expo-image-picker": "~16.0.0",
-    "expo-status-bar": "~2.0.0",
+    "expo": "~54.0.38",
+    "expo-file-system": "~19.0.24",
+    "expo-image-manipulator": "~14.0.8",
+    "expo-image-picker": "~17.0.11",
+    "expo-status-bar": "~3.0.9",
     "jpeg-js": "^0.4.4",
     "react": "19.1.0",
-    "react-native": "0.81.4",
-    "react-native-ble-plx": "^3.4.0"
+    "react-native": "0.81.5",
+    "react-native-ble-plx": "^3.5.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
-    "@types/react": "~19.1.0",
-    "typescript": "~5.9.0"
+    "@types/react": "~19.1.0"
   }
 }
