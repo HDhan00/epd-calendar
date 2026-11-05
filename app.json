@@ -7,6 +7,11 @@
     "userInterfaceStyle": "light",
     "scheme": "epdcalendar",
     "newArchEnabled": true,
+    "extra": {
+      "eas": {
+        "projectId": "4d7a7842-5e7e-404d-b675-544b60b53713"
+      }
+    },
     "splash": {
       "backgroundColor": "#f7f3e8",
       "resizeMode": "contain"
