@@ -1,0 +1,200 @@
+name: Android APK
+
+# 推 tag 触发正式构建；也可以手动跑（用于临时出包）。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS 构建 profile'
+        type: choice
+        default: preview
+        options:
+          - preview
+          - development
+      draft:
+        description: '创建草稿 Release（不公开）'
+        type: boolean
+        default: false
+
+# 同一分支/tag 只跑一个构建，避免并发抢 EAS 配额
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+# 需要写 Release 和上传产物
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ---------------------------------------------------------------- 自测 --
+  # 先跑纯 JS 的协议自测（几秒），过了再花钱构建。
+  selftest:
+    name: 协议自测
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 跑协议自测
+        run: node scripts/selftest.js
+
+  # ---------------------------------------------------------------- 构建 --
+  build:
+    name: EAS 云端构建 APK
+    needs: [selftest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: 检查 EXPO_TOKEN
+        env:
+          TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::缺少仓库 Secret EXPO_TOKEN"
+            echo ""
+            echo "获取方式：https://expo.dev/settings/access-tokens → Create token"
+            echo "然后到 GitHub 仓库 Settings → Secrets and variables → Actions 添加 EXPO_TOKEN"
+            exit 1
+          fi
+
+      - name: 检查 EAS 项目是否已关联
+        run: |
+          node -e "
+            const app = require('./app.json');
+            const id = app.expo?.extra?.eas?.projectId;
+            if (!id) {
+              console.error('::error::app.json 里没有 extra.eas.projectId，EAS 无法定位项目');
+              console.error('在本地跑一次 \`eas init\`（或 \`eas project:init\`）把它写进去并提交');
+              process.exit(1);
+            }
+            console.log('projectId =', id);
+          "
+
+      - name: 安装依赖
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: 配置 EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          packager: npm
+
+      - name: 触发 EAS 构建（阻塞等待）
+        id: eas
+        env:
+          PROFILE: ${{ inputs.profile || 'preview' }}
+        run: |
+          echo "profile = $PROFILE"
+          # --wait 会阻塞到构建结束；--json 输出机器可读结果
+          eas build \
+            --platform android \
+            --profile "$PROFILE" \
+            --non-interactive \
+            --wait \
+            --json > eas-build.json 2> eas-build.err || true
+
+          echo "----- EAS 日志（尾部） -----"
+          tail -60 eas-build.err || true
+          echo "---------------------------"
+
+          node scripts/parse-build.js eas-build.json
+
+      - name: 下载 APK
+        env:
+          URL: ${{ steps.eas.outputs.artifact_url }}
+        run: |
+          mkdir -p dist
+          VERSION="${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}', github.run_number) }}"
+          OUT="dist/epd-calendar-${VERSION}.apk"
+
+          echo "下载 $URL"
+          curl -fL --retry 3 --retry-delay 5 --connect-timeout 20 -o "$OUT" "$URL"
+
+          # 产物必须是 APK（zip 容器），否则说明 profile 配错了
+          if [ "$(head -c 2 "$OUT")" != "PK" ]; then
+            echo "::error::下载到的文件不是 APK（应为 zip 头 PK）"
+            file "$OUT" || true
+            exit 1
+          fi
+
+          SIZE=$(du -h "$OUT" | cut -f1)
+          SHA=$(sha256sum "$OUT" | cut -d' ' -f1)
+          echo "$SHA  $(basename "$OUT")" > "dist/SHA256SUMS.txt"
+
+          echo "APK: $OUT ($SIZE)"
+          echo "SHA256: $SHA"
+          echo "APK_SIZE=$SIZE" >> "$GITHUB_ENV"
+          echo "APK_SHA=$SHA" >> "$GITHUB_ENV"
+
+      - name: 确定 Release tag
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "RELEASE_TAG=${{ github.ref_name }}" >> "$GITHUB_ENV"
+            echo "RELEASE_NAME=墨水屏日历 ${{ github.ref_name }}" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_TAG=apk-${{ github.run_number }}" >> "$GITHUB_ENV"
+            echo "RELEASE_NAME=墨水屏日历 手动构建 #${{ github.run_number }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: 发布到 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          draft: ${{ inputs.draft || false }}
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+          generate_release_notes: true
+          files: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+          body: |
+            由 EAS Build 云端构建，可在 Android 7.0+ 直接安装。
+
+            - EAS 构建 ID：`${{ steps.eas.outputs.build_id }}`
+            - profile：`${{ steps.eas.outputs.profile }}`
+            - 大小：${{ env.APK_SIZE }}
+            - SHA256：`${{ env.APK_SHA }}`
+
+            安装后请授予「附近设备」权限，否则扫描不到设备。
+
+      - name: 写入任务摘要
+        if: always()
+        run: |
+          {
+            echo "## Android APK 构建"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| 结果 | ${{ job.status }} |"
+            echo "| profile | \`${{ steps.eas.outputs.profile }}\` |"
+            echo "| EAS 构建 ID | \`${{ steps.eas.outputs.build_id }}\` |"
+            echo "| APK 大小 | ${{ env.APK_SIZE }} |"
+            echo "| Release | ${{ env.RELEASE_TAG }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

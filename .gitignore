@@ -1,0 +1,33 @@
+# 依赖
+node_modules/
+.pnp
+.pnp.js
+
+# Expo
+.expo/
+.expo-shared/
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# 原生工程（由 expo prebuild 生成，不在仓库里留）
+/android
+/ios
+
+# 构建产物与日志
+eask-build.json
+eas-build.json
+eas-build.err
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# 系统垃圾
+.DS_Store
+Thumbs.db

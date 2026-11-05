@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "墨水屏日历",
+    "slug": "epd-calendar",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "epdcalendar",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#f7f3e8",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "用于连接墨水屏设备，上传画面和修改设置",
+        "NSPhotoLibraryUsageDescription": "用于选择要显示在墨水屏上的照片"
+      }
+    },
+    "android": {
+      "package": "com.panyihang.epdcalendar",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "modes": ["central"],
+          "bluetoothAlwaysPermission": "允许「墨水屏日历」连接墨水屏设备"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "允许「墨水屏日历」访问相册，以便选择要显示的照片"
+        }
+      ]
+    ]
+  }
+}
