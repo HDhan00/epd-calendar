@@ -73,6 +73,9 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
+      - name: 静态自检
+        run: node scripts/check.js
+
       - name: Metro 打包（android）
         run: npx expo export --platform android --output-dir dist-bundle --clear
 

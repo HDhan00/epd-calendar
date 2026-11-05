@@ -1,6 +1,6 @@
 {
   "name": "epd-calendar-app",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "main": "index.js",
   "private": true,
   "scripts": {
@@ -8,13 +8,14 @@
     "android": "expo run:android",
     "build:apk": "eas build -p android --profile preview",
     "build:dev": "eas build -p android --profile development",
-    "test": "node scripts/selftest.js"
+    "test": "node scripts/selftest.js",
+    "check": "node scripts/check.js",
+    "verify": "node scripts/selftest.js && node scripts/check.js"
   },
   "dependencies": {
     "expo": "~54.0.38",
     "expo-image-manipulator": "~14.0.8",
     "expo-image-picker": "~17.0.11",
-    "expo-status-bar": "~3.0.9",
     "jpeg-js": "^0.4.4",
     "react": "19.1.0",
     "react-native": "0.81.5",

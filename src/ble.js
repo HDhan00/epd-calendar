@@ -61,11 +61,14 @@ export default class EpdBle {
   }
 
   /**
+   * 扫描设备。
    * @param {(list:Array)=>void} onUpdate 每发现一台设备回调
-   * @param {number} durationMs
+   * @param {number} durationMs 扫描时长
+   * @param {{all?: boolean}} opts all=true 时不加 Service 过滤，列出附近全部 BLE 设备（排查用）
    */
-  scan(onUpdate, durationMs = 10000) {
+  scan(onUpdate, durationMs = 10000, opts = {}) {
     const found = new Map();
+    const all = !!opts.all;
     return new Promise(async (resolve, reject) => {
       try {
         await this.waitForPowerOn();
@@ -74,22 +77,43 @@ export default class EpdBle {
         return;
       }
 
-      const timer = setTimeout(() => {
-        this.manager.stopDeviceScan();
-        resolve(Array.from(found.values()));
-      }, durationMs);
+      // 同一时刻只能存在一个扫描会话
+      try { this.manager.stopDeviceScan(); } catch (e) { /* ignore */ }
 
-      this.manager.startDeviceScan([UUID.SERVICE], { allowDuplicates: false }, (err, dev) => {
+      let settled = false;
+      const finish = (err, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try { this.manager.stopDeviceScan(); } catch (e) { /* ignore */ }
+        if (err) reject(err);
+        else resolve(value);
+      };
+
+      const timer = setTimeout(() => finish(null, Array.from(found.values())), durationMs);
+
+      // all 模式传 null（不按 Service 过滤）
+      this.manager.startDeviceScan(all ? null : [UUID.SERVICE], { allowDuplicates: false }, (err, dev) => {
         if (err) {
-          clearTimeout(timer);
-          this.manager.stopDeviceScan();
-          reject(new Error(err.message || '扫描失败'));
+          finish(new Error(err.message || '扫描失败'));
           return;
         }
         if (!dev) return;
         const name = dev.localName || dev.name || '';
-        if (found.has(dev.id)) return;
-        found.set(dev.id, { id: dev.id, name: name || DEVICE_NAME, rssi: dev.rssi });
+        const services = (dev.serviceUUIDs || []).map((u) => String(u).toUpperCase());
+        // 判断是不是我们的设备：名字匹配，或广播里带了私有 Service UUID
+        const isEpd = name === DEVICE_NAME || services.includes(UUID.SERVICE);
+        if (found.has(dev.id)) {
+          const prev = found.get(dev.id);
+          if (prev.rssi === dev.rssi) return;
+        }
+        found.set(dev.id, {
+          id: dev.id,
+          name: name || '(未命名)',
+          rssi: dev.rssi,
+          services,
+          isEpd,
+        });
         if (onUpdate) onUpdate(Array.from(found.values()));
       });
     });
@@ -102,19 +126,37 @@ export default class EpdBle {
   /* -------------------------------------------------------------- 连接 ---- */
 
   async connect(id) {
+    // 扫描和连接同时进行在部分机型上会互相干扰，先停扫描
+    try { this.manager.stopDeviceScan(); } catch (e) { /* ignore */ }
     await this.disconnect().catch(() => {});
     this.parser = new P.FrameParser();
 
     const device = await this.manager.connectToDevice(id, { timeout: 12000 });
-    await device.discoverAllServicesAndCharacteristics();
-    this.device = device;
-    this.serviceId = up(device.id) && this._findServiceId(device);
 
-    await this._subscribe();
-    await this._requestMtu();
+    try {
+      await device.discoverAllServicesAndCharacteristics();
+      this.device = device;
+      this.serviceId = this._findServiceId(device);
+      await this._subscribe();
+      await this._requestMtu();
+    } catch (e) {
+      // 连上了但不是我们的设备（比如"扫描全部设备"时点错），
+      // 必须把底层连接回收，否则设备会一直占着这一个 BLE 连接槽位
+      try { await device.cancelConnection(); } catch (err) { /* ignore */ }
+      this.device = null;
+      this.connected = false;
+      throw new Error(
+        e && e.message && /私有服务/.test(e.message)
+          ? e.message
+          : `连接已建立但初始化失败：${(e && e.message) || '未知错误'}`,
+      );
+    }
     this.connected = true;
 
-    device.onDisconnected(() => {
+    if (this.disconnectSub) {
+      try { this.disconnectSub.remove(); } catch (e) { /* ignore */ }
+    }
+    this.disconnectSub = device.onDisconnected(() => {
       this.connected = false;
       this._failAllPending(new Error('设备已断开'));
       if (this.onStateChange) this.onStateChange(false);
@@ -163,6 +205,10 @@ export default class EpdBle {
     if (this.monitorSub) {
       try { this.monitorSub.remove(); } catch (e) { /* ignore */ }
       this.monitorSub = null;
+    }
+    if (this.disconnectSub) {
+      try { this.disconnectSub.remove(); } catch (e) { /* ignore */ }
+      this.disconnectSub = null;
     }
     if (this.device) {
       try { await this.device.cancelConnection(); } catch (e) { /* ignore */ }

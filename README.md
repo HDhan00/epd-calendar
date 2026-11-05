@@ -200,3 +200,13 @@ git push origin v1.0.0
 - CI 里只跑 `preview`（APK）；`development` 留给本地热更新调试
 - 自测 job 不花钱，代码改完先 `git push` 到分支让自测跑一遍，确认绿了再打 tag
 - 真要连续试构建，用手动触发 + `draft` Release，别每次都打 tag
+
+## 九、排查：扫不到设备
+
+「设备」页的扫描按钮默认**按 Service UUID 过滤**（只会列出本项目设备）。
+
+**长按「扫描设备」** → 列出附近**全部** BLE 设备（不过滤），每项显示：
+设备名、RSSI、广播服务数量，属于本项目的会打 ✅。
+
+用途：区分「设备没广播」和「UUID 不匹配」这类问题。
+`npm run check` 可跑静态自检（import 解析、依赖声明、样式键、Node API 误用）。

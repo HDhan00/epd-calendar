@@ -9,12 +9,14 @@ export default function DeviceScreen({ ctx }) {
   const [scanning, setScanning] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [devices, setDevices] = useState([]);
+  const [scanMode, setScanMode] = useState('filtered'); // 'filtered' | 'all'
 
   useEffect(() => {
     if (connected && !info) refreshInfo();
   }, [connected]);
 
-  const onScan = useCallback(async () => {
+  // all=false 按 Service UUID 过滤（正常使用）；all=true 列出附近全部 BLE 设备（排查用）
+  const runScan = useCallback(async (allMode) => {
     if (scanning) return;
 
     // Android 12+ 必须先拿到「附近的设备」运行时权限，否则系统直接拒绝扫描
@@ -38,17 +40,26 @@ export default function DeviceScreen({ ctx }) {
       }
     }
 
+    setScanMode(allMode ? 'all' : 'filtered');
     setScanning(true);
     setDevices([]);
     try {
-      await client.scan(setDevices, 10000);
-      if (!devices.length) log('没扫到设备，确认设备已上电');
+      const list = await client.scan(setDevices, allMode ? 12000 : 10000, { all: allMode });
+      if (!list.length) {
+        log(allMode ? '附近没有扫描到任何 BLE 设备' : '没扫到设备，确认设备已上电。可长按按钮扫描全部设备排查');
+      } else if (!allMode && !list.some((d) => d.isEpd)) {
+        log('扫到了设备但没有 EPD-Calendar，试试长按扫描全部设备');
+      }
     } catch (e) {
       alert('扫描失败', e.message);
+      log(`扫描失败：${e.message}`);
     } finally {
       setScanning(false);
     }
-  }, [scanning, client, devices.length, log, alert]);
+  }, [scanning, client, log, alert]);
+
+  const onScan = useCallback(() => runScan(false), [runScan]);
+  const onScanAll = useCallback(() => runScan(true), [runScan]);
 
   const onConnect = useCallback(async (id) => {
     if (connecting) return;
@@ -94,9 +105,22 @@ export default function DeviceScreen({ ctx }) {
 
         {!connected && (
           <>
-            <TouchableOpacity style={s.btn} onPress={onScan} disabled={scanning}>
-              <Text style={s.btnText}>{scanning ? '扫描中…' : '扫描设备'}</Text>
+            <TouchableOpacity
+              style={s.btn}
+              onPress={onScan}
+              onLongPress={onScanAll}
+              delayLongPress={500}
+              disabled={scanning}
+            >
+              <Text style={s.btnText}>
+                {scanning ? (scanMode === 'all' ? '扫描全部设备中…' : '扫描中…') : '扫描设备'}
+              </Text>
             </TouchableOpacity>
+            <Text style={s.hint}>
+              {scanMode === 'all'
+                ? '排查模式：列出附近全部 BLE 设备（不过滤）'
+                : '长按此按钮 → 列出附近全部 BLE 设备，用于排查扫不到的问题'}
+            </Text>
 
             {scanning && <ActivityIndicator style={{ marginTop: 12 }} />}
 
@@ -107,8 +131,14 @@ export default function DeviceScreen({ ctx }) {
                 onPress={() => onConnect(d.id)}
                 disabled={connecting}
               >
-                <Text style={s.label}>{d.name}</Text>
-                <Text style={s.value}>{d.rssi} dBm · 点击连接 ›</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.label}>
+                    {d.name} {d.isEpd ? '✅' : ''}
+                  </Text>
+                  <Text style={[s.hint, { marginTop: 2 }]}>
+                    {d.rssi} dBm · {d.services.length} 个广播服务 · 点击连接 ›
+                  </Text>
+                </View>
               </TouchableOpacity>
             ))}
           </>

@@ -96,8 +96,15 @@ export default function PhotoScreen({ ctx }) {
       log(`照片已提交：槽 ${result.slot}，CRC32=${result.crc32.toString(16)}`);
       alert('上传成功', `已写入槽 ${result.slot}，设备开始刷新（约 15 秒）。`);
     } catch (e) {
-      log(`上传失败：${e.message}`);
-      alert('上传失败', e.message);
+      // 主动取消不是错误，别弹"上传失败"吓人
+      if (/已取消/.test(e.message)) {
+        log('已取消上传');
+        setProgress(0);
+        setSpeedText('');
+      } else {
+        log(`上传失败：${e.message}`);
+        alert('上传失败', e.message);
+      }
     } finally {
       setUploading(false);
     }
