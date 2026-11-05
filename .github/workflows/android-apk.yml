@@ -51,10 +51,40 @@ jobs:
       - name: 跑协议自测
         run: node scripts/selftest.js
 
+  # ------------------------------------------------------------ 打包预检 --
+  # 用 expo export 在 CI 里先跑一遍 Metro 打包：
+  # 任何 import 解析失败 / 语法错误都会在这里原样报出来，
+  # 不用等 EAS 构建（要花钱和时间）才发现。
+  bundle:
+    name: JS 打包预检
+    needs: [selftest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: Metro 打包（android）
+        run: npx expo export --platform android --output-dir dist-bundle --clear
+
+      - name: 打包产物统计
+        run: |
+          du -sh dist-bundle
+          find dist-bundle -name '*.hbc' -o -name '*.js' | head -5
+
   # ---------------------------------------------------------------- 构建 --
   build:
     name: EAS 云端构建 APK
-    needs: [selftest]
+    needs: [selftest, bundle]
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
