@@ -1,0 +1,126 @@
+name: TrafficMon APK
+
+# 只有 trafficmon/ 子工程的 tag 会触发这个工作流，
+# 不会和 EPD 那个 App 的构建互相干扰。
+on:
+  push:
+    tags:
+      - 'tm-v*'
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: '版本名（只影响 Release 标题）'
+        required: false
+        default: '3.1-cloud'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: trafficmon-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  JAVA_VERSION: '17'
+  GRADLE_VERSION: '8.9'
+
+jobs:
+  build:
+    name: 构建 APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: 安装 Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: 安装 SDK 平台与构建工具
+        run: |
+          # AGP 8.7 需要 platform 35；runner 自带的平台列表不保证齐全
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools" > /dev/null
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms"
+
+      - name: 安装 Gradle
+        run: |
+          # 不依赖第三方 action：直接下官方分发包，版本可控
+          curl -sSL -o /tmp/gradle.zip "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
+          unzip -q /tmp/gradle.zip -d /opt
+          echo "/opt/gradle-${GRADLE_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: 校验签名密钥
+        working-directory: trafficmon
+        run: |
+          # 证书指纹必须和手机上已装版本一致，否则覆盖安装会失败
+          keytool -list -v -keystore debug.keystore -storepass android \
+            | grep -E "Alias name|SHA256" | head -4
+          FP=$(keytool -list -v -keystore debug.keystore -storepass android \
+            | grep -o -E '([0-9A-F]{2}:){31}[0-9A-F]{2}' | head -1)
+          echo "keystore 指纹: $FP"
+          if [ "$FP" != "DA:A5:A0:97:39:33:E5:CD:3C:6E:1A:B7:D1:09:29:E7:44:A3:63:4F:C5:1C:25:6D:25:D6:43:6C:90:45:F1:1D" ]; then
+            echo "::warning::keystore 指纹与预期不一致，覆盖安装可能失败"
+          else
+            echo "::notice::签名指纹与已装版本一致，可覆盖安装"
+          fi
+
+      - name: Gradle 构建
+        working-directory: trafficmon
+        run: |
+          gradle --version
+          gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: 校验产物
+        working-directory: trafficmon
+        run: |
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          [ -n "$APK" ] || { echo "::error::没有生成 APK"; exit 1; }
+          echo "APK: $APK"
+          ls -lh "$APK"
+
+          # 用 apksigner 复核签名，确认不是未签名包
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs "$APK" | head -6
+
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp "$APK" "$GITHUB_WORKSPACE/dist/TrafficMon-${{ github.ref_name || 'manual' }}.apk"
+          cd "$GITHUB_WORKSPACE/dist"
+          sha256sum *.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: 发布到 Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('tm-build-{0}', github.run_number) }}
+          name: TrafficMon ${{ inputs.version_name || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+          body: |
+            TrafficMon 云端构建产物（Gradle + AGP，AIDL 正常生成）。
+
+            - 版本：`3.1-cloud` (versionCode 8)
+            - 签名：与已装 v3.1 相同的 debug.keystore，**可直接覆盖安装**
+            - 安装后请到「设置 → 应用 → 特殊权限 → 使用情况访问」授予权限
+
+      - name: 任务摘要
+        if: always()
+        run: |
+          {
+            echo "## TrafficMon 构建"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| 结果 | ${{ job.status }} |"
+            echo "| Gradle | ${{ env.GRADLE_VERSION }} |"
+            echo "| JDK | ${{ env.JAVA_VERSION }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
