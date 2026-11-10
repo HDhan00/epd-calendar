@@ -38,6 +38,17 @@
 
 
 
+
+        <!-- Shizuku 接收 binder 的入口，必须由 App 自己声明（AAR 里只有 meta-data）。
+             ${applicationId}.shizuku 是固定 authority 格式，不能改。 -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
         <service
             android:name=".MonitorService"
             android:exported="false"

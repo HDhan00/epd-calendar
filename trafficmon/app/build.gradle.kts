@@ -11,8 +11,8 @@ android {
         minSdk = 26
         targetSdk = 34
         // 云端构建版本：versionCode 必须大于已装的 7，否则覆盖安装会被拒
-        versionCode = 9
-        versionName = "3.2-shizuku"
+        versionCode = 10
+        versionName = "3.2.1-shizuku"
     }
 
     // 用仓库里自带的 debug.keystore 签名。
