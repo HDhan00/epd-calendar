@@ -118,6 +118,46 @@ public class MainActivity extends Activity {
             }
         }));
 
+        root.addView(btn("⚡ 授权 Shizuku（可选，能读更细的数据）", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!ShizukuBridge.alive()) {
+                    new AlertDialog.Builder(MainActivity.this)
+                            .setTitle("Shizuku 未运行")
+                            .setMessage("没有检测到 Shizuku 服务。\n\n"
+                                    + "1) 安装并启动 Shizuku（或 Sui）\n"
+                                    + "2) 在 Shizuku 里通过无线调试或 root 启动服务\n"
+                                    + "3) 回来再点这个按钮\n\n"
+                                    + "不授权也能用，只是数据粒度会粗一些。")
+                            .setPositiveButton("好", null)
+                            .show();
+                    return;
+                }
+                try {
+                    rikka.shizuku.Shizuku.addRequestPermissionResultListener(
+                            new rikka.shizuku.Shizuku.OnRequestPermissionResultListener() {
+                                @Override
+                                public void onRequestPermissionResult(int requestCode, int grantResult) {
+                                    if (requestCode != ShizukuBridge.REQUEST_CODE) {
+                                        return;
+                                    }
+                                    final boolean ok = grantResult == 0;
+                                    runOnUiThread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            ShellNetStats.invalidate();
+                                            status.setText(ok ? "Shizuku 已授权" : "Shizuku 授权被拒绝");
+                                        }
+                                    });
+                                }
+                            });
+                } catch (Throwable ignore) {
+                }
+                ShizukuBridge.request();
+                status.setText("已请求 Shizuku 授权，请看弹出的对话框");
+            }
+        }));
+
         root.addView(btn("■ 停止监控", new View.OnClickListener() {
             @Override
             public void onClick(View v) {

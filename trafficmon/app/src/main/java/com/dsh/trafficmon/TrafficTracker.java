@@ -156,8 +156,17 @@ public class TrafficTracker {
         }
         refreshApps();
 
-        // ① NetworkStatsManager
+        // ⓪ Shizuku(shell) 通道：能拿到 service 内部累计计数，粒度最细
         Map<Integer, long[]> cur = null;
+        if (cur == null && ShizukuBridge.ready()) {
+            Map<Integer, long[]> sh = ShellNetStats.read();
+            if (sh != null && !sh.isEmpty()) {
+                cur = sh;
+                source = "sh";
+            }
+        }
+
+        // ① NetworkStatsManager
         if (cur == null) {
             cur = readNetworkStats(6L * 3600_000L);
         }
@@ -307,6 +316,10 @@ public class TrafficTracker {
     // ---------------------------------------------------------------- 自检
 
     /** 一次性探测，供界面上「自检」按钮调用。 */
+    private boolean lastSourceIsNotShell() {
+        return !"sh".equals(source);
+    }
+
     public String probe() {
         StringBuilder sb = new StringBuilder();
         sb.append("使用情况访问：").append(hasUsageAccess() ? "✅" : "❌").append("\n");
@@ -361,6 +374,15 @@ public class TrafficTracker {
             }
         }
         sb.append("窗口：最近 6 小时 · 每 15 秒刷新\n应用数：").append(uidList.size());
+
+        // 4) Shizuku(shell) 通道
+        sb.append("\n——— Shizuku ———\n");
+        sb.append(ShellNetStats.diag()).append("\n");
+        String smp = ShellNetStats.sample();
+        if (smp != null && !smp.isEmpty() && lastSourceIsNotShell()) {
+            String head = smp.length() > 700 ? smp.substring(0, 700) : smp;
+            sb.append("dumpsys 开头：\n").append(head).append("\n");
+        }
         return sb.toString();
     }
 }
