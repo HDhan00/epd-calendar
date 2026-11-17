@@ -71,8 +71,8 @@ export default function PhotoScreen({ ctx }) {
   };
 
   const onUpload = async () => {
-    if (!client.connected) {
-      alert('未连接', '请先连接设备');
+    if (!client.isUsable()) {
+      alert('未连接', '蓝牙已断开，请回「设备」页重新连接。');
       return;
     }
     if (!frame) {
@@ -213,7 +213,18 @@ export default function PhotoScreen({ ctx }) {
         <TouchableOpacity
           style={[s.btn, s.btnGhost, !connected && s.btnDisabled]}
           disabled={!connected}
-          onPress={() => client.photoAbort().then(() => alert('已取消', '设备端未完成的上传已丢弃')).catch((e) => alert('取消失败', e.message))}
+          onPress={async () => {
+            if (!client.isUsable()) {
+              alert('设备未连接', '蓝牙已断开，请回「设备」页重新连接。');
+              return;
+            }
+            try {
+              await client.photoAbort();
+              alert('已取消', '设备端未完成的上传已丢弃');
+            } catch (e) {
+              alert('取消失败', e.message);
+            }
+          }}
         >
           <Text style={[s.btnText, s.btnTextGhost]}>取消设备端的未完成上传</Text>
         </TouchableOpacity>

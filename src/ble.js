@@ -252,9 +252,25 @@ export default class EpdBle {
     return this.seq;
   }
 
+  /** 每个对外命令执行前都确认底层连接还在，避免 device 为 null 时抛 TypeError */
+  _ensureDevice() {
+    if (!this.device) {
+      this.connected = false;
+      if (this.onStateChange) this.onStateChange(false);
+      throw new Error('设备未连接（蓝牙可能已断开），请回「设备」页重新连接');
+    }
+    return this.device;
+  }
+
+  /** 供界面在切页时复查：底层连接是否真的还在 */
+  isUsable() {
+    return !!(this.connected && this.device);
+  }
+
   _write(charUUID, bytes) {
+    const dev = this._ensureDevice();
     const b64 = bytesToBase64(bytes);
-    return this.device.writeCharacteristicWithResponseForService(
+    return dev.writeCharacteristicWithResponseForService(
       this.serviceId,
       charUUID.toLowerCase(),
       b64,
@@ -267,6 +283,7 @@ export default class EpdBle {
     const retries = opts.retries === undefined ? 2 : opts.retries;
     const charUUID = channel === 'image' ? UUID.IMAGE : UUID.CONTROL;
 
+    this._ensureDevice();
     let lastErr = null;
     for (let attempt = 0; attempt <= retries; attempt++) {
       const seq = this.nextSeq();

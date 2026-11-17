@@ -45,6 +45,21 @@ export default function App() {
     };
   }, [log]);
 
+  // 每 5 秒复查底层连接是否真的还在：BLE 可能被系统静默断开，
+  // 而界面仍显示"已连接"，此时任何操作都会抛出 null 属性错误
+  useEffect(() => {
+    if (!connected) return undefined;
+    const timer = setInterval(() => {
+      const c = clientRef.current;
+      if (c && !c.isUsable()) {
+        setConnected(false);
+        setInfo(null);
+        log('检测到蓝牙已断开，请重新连接');
+      }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [connected, log]);
+
   const refreshInfo = useCallback(async () => {
     const c = clientRef.current;
     if (!c.connected) return null;
