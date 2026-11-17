@@ -41,6 +41,8 @@ export default class EpdBle {
     this.connected = false;
     this.onStateChange = null;
     this.monitorSub = null;
+    // 最近命令的收发记录，供界面把"设备到底回了什么"摊开给人看
+    this.trace = [];
   }
 
   /* -------------------------------------------------------------- 扫描 ---- */
@@ -247,6 +249,42 @@ export default class EpdBle {
     this.pending.clear();
   }
 
+  static hex(bytes, max = 40) {
+    if (!bytes || !bytes.length) return '(空)';
+    const n = Math.min(bytes.length, max);
+    const parts = [];
+    for (let i = 0; i < n; i++) parts.push(bytes[i].toString(16).padStart(2, '0'));
+    const tail = bytes.length > max ? ` …(+${bytes.length - max})` : '';
+    return parts.join(' ') + tail;
+  }
+
+  _trace(entry) {
+    this.trace.unshift(entry);
+    if (this.trace.length > 12) this.trace.length = 12;
+  }
+
+  /** 状态码 → 人话 + 该怎么查 */
+  static explain(status, cmdName) {
+    const map = {
+      1: '设备认为这条命令的载荷不合法：长度、字段范围或 CRC 不对（对比下面的十六进制）',
+      2: '设备写 NVS/Flash 失败，可能是存储分区问题或擦写次数异常',
+      3: '设备当前状态不允许执行这条命令（例如正在刷新、或上传会话状态不对）',
+      4: '设备固件不支持这条命令（版本不匹配）',
+      5: '设备忙：命令队列已满或正在刷屏，稍后重试',
+    };
+    const base = map[status.code];
+    return base ? `${status.text} —— ${base}` : `未知状态 0x${(status.code >>> 0).toString(16)}`;
+  }
+
+  _err(prefix, r) {
+    const e = new Error(
+      `${prefix}：${EpdBle.explain(r.status)}\n原始回包: ${EpdBle.hex(r.payload, 24)}`,
+    );
+    e.status = r.status;
+    e.raw = r.payload;
+    return e;
+  }
+
   nextSeq() {
     this.seq = (this.seq + 1) & 0xffff;
     return this.seq;
@@ -297,6 +335,7 @@ export default class EpdBle {
         this.pending.set(seq, { resolve, reject, timer });
       });
 
+      const t0 = Date.now();
       try {
         await this._write(charUUID, frame);
         const resp = await respPromise;
@@ -304,6 +343,16 @@ export default class EpdBle {
           throw new Error(`响应类型不匹配: 0x${resp.type.toString(16)}`);
         }
         const status = P.statusOf(resp.payload);
+        this._trace({
+          ts: Date.now(),
+          name: P.CMD_NAME[type] || ('0x' + type.toString(16)),
+          seq,
+          code: status.code,
+          ms: Date.now() - t0,
+          tx: EpdBle.hex(payload, 16),
+          rx: EpdBle.hex(resp.payload, 24),
+          hint: status.code === 0 ? '' : EpdBle.explain(status, P.CMD_NAME[type]),
+        });
         if (status.code === 5 && attempt < retries) {
           lastErr = new Error(status.text);
           await delay(300 * (attempt + 1));
@@ -312,6 +361,16 @@ export default class EpdBle {
         return { status, payload: resp.payload };
       } catch (e) {
         lastErr = e;
+        this._trace({
+          ts: Date.now(),
+          name: P.CMD_NAME[type] || ('0x' + type.toString(16)),
+          seq,
+          code: -1,
+          ms: Date.now() - t0,
+          tx: EpdBle.hex(payload, 16),
+          rx: '',
+          hint: e.message,
+        });
         this.pending.delete(seq);
         if (attempt >= retries) break;
         await delay(200 * (attempt + 1));
@@ -324,69 +383,69 @@ export default class EpdBle {
 
   async getInfo() {
     const r = await this.request(P.CMD.GET_INFO, new Uint8Array(0));
-    if (r.status.code !== 0) throw new Error(`GET_INFO 失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('GET_INFO 失败', r);
     return P.parseDeviceInfo(r.payload);
   }
 
   async setMode(mode) {
     const c = P.cmd.setMode(mode);
     const r = await this.request(c.type, c.payload);
-    if (r.status.code !== 0) throw new Error(`设置模式失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('设置模式失败', r);
   }
 
   async setRotation(rotation) {
     const c = P.cmd.setRotation(rotation);
     const r = await this.request(c.type, c.payload);
-    if (r.status.code !== 0) throw new Error(`设置旋转失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('设置旋转失败', r);
   }
 
   async refresh() {
     const c = P.cmd.refresh();
     const r = await this.request(c.type, c.payload, { timeout: 15000 });
-    if (r.status.code !== 0) throw new Error(`刷新失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('刷新失败', r);
   }
 
   async nextPhoto() {
     const c = P.cmd.nextPhoto();
     const r = await this.request(c.type, c.payload);
-    if (r.status.code !== 0) throw new Error(`切换照片失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('切换照片失败', r);
     return r.payload[1];
   }
 
   async setTimezone(tz) {
     const c = P.cmd.setTimezone(tz);
     const r = await this.request(c.type, c.payload);
-    if (r.status.code !== 0) throw new Error(`设置时区失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('设置时区失败', r);
   }
 
   async setLocation(lat, lon) {
     const c = P.cmd.setLocation(lat, lon);
     const r = await this.request(c.type, c.payload);
-    if (r.status.code !== 0) throw new Error(`设置位置失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('设置位置失败', r);
   }
 
   async setWifi(ssid, password) {
     const c = P.cmd.setWifi(ssid, password);
     const r = await this.request(c.type, c.payload, { timeout: 12000 });
-    if (r.status.code !== 0) throw new Error(`配网失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('配网失败', r);
   }
 
   async weatherRefresh() {
     const c = P.cmd.weatherRefresh();
     const r = await this.request(c.type, c.payload);
-    if (r.status.code !== 0) throw new Error(`天气刷新失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('天气刷新失败', r);
   }
 
   async setTodayPlan(text) {
     const c = P.cmd.setTodayPlan(text);
     const r = await this.request(c.type, c.payload);
-    if (r.status.code !== 0) throw new Error(`设置今日计划失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('设置今日计划失败', r);
   }
 
   async photoAbort() {
     const c = P.cmd.photoAbort();
     const r = await this.request(c.type, c.payload);
-    if (r.status.code !== 0) throw new Error(`取消上传失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('取消上传失败', r);
   }
 
   getChunkSize() {
@@ -413,7 +472,7 @@ export default class EpdBle {
 
     const begin = P.cmd.photoBegin(photoId, slot, total, crc);
     let r = await this.request(begin.type, begin.payload, { timeout: 10000 });
-    if (r.status.code !== 0) throw new Error(`开始上传失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('开始上传失败', r);
 
     let offset = P.readU32LE(r.payload, 2);
     if (opts.onProgress) opts.onProgress(offset, total);
@@ -430,7 +489,7 @@ export default class EpdBle {
         timeout: 10000,
         retries: 3,
       });
-      if (r.status.code !== 0) throw new Error(`数据写入失败：${r.status.text}`);
+      if (r.status.code !== 0) throw this._err('数据写入失败', r);
       const next = P.readU32LE(r.payload, 1);
       if (next <= offset && offset + chunk.length < total) {
         throw new Error(`设备未接收偏移 ${offset} 之后的数据`);
@@ -441,7 +500,7 @@ export default class EpdBle {
 
     const end = P.cmd.photoEnd(crc);
     r = await this.request(end.type, end.payload, { timeout: 20000 });
-    if (r.status.code !== 0) throw new Error(`提交失败：${r.status.text}`);
+    if (r.status.code !== 0) throw this._err('提交失败', r);
     return {
       slot: r.payload[1],
       photoId: P.readU32LE(r.payload, 2),

@@ -10,10 +10,18 @@ export default function DeviceScreen({ ctx }) {
   const [connecting, setConnecting] = useState(false);
   const [devices, setDevices] = useState([]);
   const [scanMode, setScanMode] = useState('filtered'); // 'filtered' | 'all'
+  const [trace, setTrace] = useState([]);
+  const [showTrace, setShowTrace] = useState(false);
 
   useEffect(() => {
     if (connected && !info) refreshInfo();
   }, [connected]);
+
+  // trace 是 ble 实例上的可变数组，定期快照一次让界面能刷新
+  useEffect(() => {
+    const t = setInterval(() => setTrace((client.trace || []).slice(0, 8)), 1000);
+    return () => clearInterval(t);
+  }, [client]);
 
   // all=false 按 Service UUID 过滤（正常使用）；all=true 列出附近全部 BLE 设备（排查用）
   const runScan = useCallback(async (allMode) => {
@@ -182,6 +190,36 @@ export default function DeviceScreen({ ctx }) {
             <Text style={[s.btnText, s.btnTextGhost]}>下一张照片</Text>
           </TouchableOpacity>
           <Text style={s.hint}>四色全刷约 10–15 秒，期间命令会排队。</Text>
+        </View>
+      )}
+
+      {connected && (
+        <View style={s.card}>
+          <Text style={s.cardTitle}>设备回包（诊断）</Text>
+          <Text style={s.hint}>点任意一行展开：发送了什么、设备回了什么、状态码什么意思</Text>
+          {trace.length === 0 && (
+            <Text style={s.hint}>还没有命令记录，先点上面任意按钮试一次</Text>
+          )}
+          {trace.map((t, i) => (
+            <TouchableOpacity
+              key={`${t.ts}-${i}`}
+              onPress={() => setShowTrace(showTrace === t.ts ? null : t.ts)}
+            >
+              <View style={[s.row, i === trace.length - 1 && s.rowLast]}>
+                <Text style={s.label}>{t.name} #{t.seq}</Text>
+                <Text style={[s.value, t.code === 0 ? s.valueOn : s.valueOff]}>
+                  {t.code === 0 ? '成功' : (t.code === -1 ? '无响应' : `状态 ${t.code}`)} · {t.ms} ms
+                </Text>
+              </View>
+              {showTrace === t.ts && (
+                <View style={{ paddingBottom: 10 }}>
+                  <Text style={s.hint}>发送: {t.tx || '(空)'}</Text>
+                  <Text style={s.hint}>回包: {t.rx || '(无)'}</Text>
+                  {!!t.hint && <Text style={[s.hint, { color: '#b04a3a' }]}>说明: {t.hint}</Text>}
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
         </View>
       )}
 
