@@ -35,6 +35,11 @@ export default function PhotoScreen({ ctx }) {
       setPreview(result.previewUri);
       setStats(statsPercent(result.stats));
       log(`量化完成 ${result.ms} ms，${result.frame.length} 字节`);
+      if (result.warning) {
+        log(`⚠️ ${result.warning}`);
+        setInfo(result.warning);
+        alert('图片可能有问题', result.warning);
+      }
     } catch (e) {
       log(`处理失败：${e.message}`);
       alert('图片处理失败', e.message);

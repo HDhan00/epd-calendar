@@ -192,8 +192,13 @@ export default class EpdBle {
       return;
     }
     try {
-      const mtu = await this.device.requestMTU(247);
-      this.mtu = mtu || 247;
+      // 注意：ble-plx 的 requestMTU() 返回的是 Device 对象，不是 MTU 数字。
+      // 真正的协商结果要读 device.mtu，直接拿返回值做算术会得到 NaN。
+      const dev = await this.device.requestMTU(247);
+      const reported = dev && typeof dev.mtu === 'number'
+        ? dev.mtu
+        : (this.device && typeof this.device.mtu === 'number' ? this.device.mtu : NaN);
+      this.mtu = Number.isFinite(reported) && reported >= 23 ? reported : 247;
     } catch (e) {
       this.mtu = 185;
     }
@@ -368,7 +373,11 @@ export default class EpdBle {
   }
 
   getChunkSize() {
-    return Math.max(20, this.mtu - 3 - PHOTO_DATA_OVERHEAD);
+    // 兜底：任何情况下都不允许返回 NaN（NaN 会让 slice 切出 0 字节，
+    // 设备收到只有 offset 的 PHOTO_DATA 会回“参数/CRC 无效”）
+    const mtu = Number(this.mtu);
+    const safe = Number.isFinite(mtu) && mtu >= 23 ? mtu : 23;
+    return Math.max(20, safe - 3 - PHOTO_DATA_OVERHEAD);
   }
 
   /* ---------------------------------------------------------- 照片上传 ---- */
@@ -381,6 +390,9 @@ export default class EpdBle {
     const crc = P.crc32ieee(frame);
     const photoId = (Date.now() >>> 0) % 0xffffffff || 1;
     const maxChunk = this.getChunkSize();
+    if (!Number.isFinite(maxChunk) || maxChunk < 1) {
+      throw new Error(`MTU 异常（${this.mtu}），单片长度 ${maxChunk}，无法上传`);
+    }
 
     const begin = P.cmd.photoBegin(photoId, slot, total, crc);
     let r = await this.request(begin.type, begin.payload, { timeout: 10000 });

@@ -62,6 +62,9 @@ export async function buildFrame(uri, rotateDeg = 0) {
   // 1) 先旋转（旋转会交换宽高），再按目标比例 cover 裁剪
   let work = uri;
   let size = await getImageSize(uri);
+  if (!size || !(size.width > 0) || !(size.height > 0)) {
+    throw new Error(`读不到图片尺寸（${JSON.stringify(size)}），换一张图片试试`);
+  }
   const deg = ((rotateDeg % 360) + 360) % 360;
 
   if (deg !== 0) {
@@ -109,6 +112,17 @@ export async function buildFrame(uri, rotateDeg = 0) {
   const { indices, preview, stats } = IMG.quantize(decoded.data, W, H);
   const frame = IMG.packFrame(indices, W, H);
 
+  // 3.5) 异常检测：整张图几乎全白/全黑，通常是图片没真正解码成功
+  const totalPx = W * H;
+  const whiteRatio = stats[P.PANEL.WHITE] / totalPx;
+  const blackRatio = stats[P.PANEL.BLACK] / totalPx;
+  let warning = '';
+  if (whiteRatio > 0.995) {
+    warning = '量化结果 99% 以上是白色，图片可能没加载成功。换一张彩色照片再试。';
+  } else if (blackRatio > 0.995) {
+    warning = '量化结果 99% 以上是黑色，图片可能是透明的或全黑。';
+  }
+
   // 4) 预览（半分辨率 PNG，省内存）
   const small = downsampleRGBA(preview, W, H, 2);
   const previewUri = rgbaToDataUri(small.data, small.width, small.height);
@@ -117,6 +131,7 @@ export async function buildFrame(uri, rotateDeg = 0) {
     frame,
     previewUri,
     stats,
+    warning,
     ms: Date.now() - t0,
   };
 }
