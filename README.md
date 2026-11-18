@@ -1,7 +1,39 @@
-# 墨水屏日历 · Android App（Expo + EAS 云构建）
+# 墨水屏日历 · 第三方安卓客户端
 
-配套固件：[panyihang/3.98Inch-ESP32C3-EPD](https://github.com/panyihang/3.98Inch-ESP32C3-EPD)
-协议：[docs/ble_protocol.md](https://github.com/panyihang/3.98Inch-ESP32C3-EPD/blob/main/docs/ble_protocol.md)
+基于开源硬件项目的**独立第三方客户端**。本仓库只包含安卓 App，
+不含硬件设计文件，也不含固件二进制。
+
+---
+
+## 来源与许可声明
+
+**本项目的绝大部分成果不属于我。** 明确区分如下：
+
+| 部分 | 来源 | 许可 | 本仓库是否包含 |
+|---|---|---|---|
+| **硬件设计**（原理图 / PCB / FPC） | [立创开源「4寸墨水屏日历/相框」](https://oshwhub.com/an_ye/project_wgvyuprv) by **an_ye** | **OpenAtom OHL 1.0** | ❌ 不包含，仅使用其设计打样 |
+| **设备固件**（ESP32-C3） | [panyihang/3.98Inch-ESP32C3-EPD](https://github.com/panyihang/3.98Inch-ESP32C3-EPD) by **panyihang** | **未声明许可**（保留所有权利） | ❌ 不包含，**也不提供编译产物** |
+| **BLE 协议规范** | 同上仓库 `docs/ble_protocol.md` | 随上游 | 协议事实本身不受版权保护 |
+| **安卓客户端**（本仓库全部代码） | 本人按上述协议文档**独立实现** | 未指定（默认保留所有权利） | ✅ 仅此部分 |
+
+要点：
+
+- **没有复制上游的任何源代码**。App 是按公开的协议文档（帧格式、命令表、字段布局）
+  从零实现的，不是上游微信小程序的移植或反编译。
+- **固件二进制不可分发**。上游仓库未附许可，默认保留所有权利，因此本仓库
+  **不提供、也不代为分发** 任何 `.bin`。需要固件请自行克隆上游源码并用 ESP-IDF 编译。
+- **硬件复刻须遵守 OHL 1.0**：保留原作者署名与许可声明，修改处需说明。
+- 本项目与上述作者**无隶属关系**，也未获其背书。
+
+---
+
+## 配套固件与协议
+
+- 固件：[panyihang/3.98Inch-ESP32C3-EPD](https://github.com/panyihang/3.98Inch-ESP32C3-EPD)（需自行编译）
+- 协议：[docs/ble_protocol.md](https://github.com/panyihang/3.98Inch-ESP32C3-EPD/blob/main/docs/ble_protocol.md)
+
+> 本 App 实现的是该文档描述的 **协议 v1**。固件若修改了字段或命令，
+> 本 App 不会自动兼容，请以设备实际回包为准（App 内有「设备回包（诊断）」可对照）。
 
 ---
 
