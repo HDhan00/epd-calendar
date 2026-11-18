@@ -74,7 +74,9 @@ jobs:
         run: npm ci
 
       - name: 静态自检
-        run: node scripts/check.js
+        run: |
+          node scripts/check.js
+          node scripts/handlers.js
 
       - name: Metro 打包（android）
         run: npx expo export --platform android --output-dir dist-bundle --clear

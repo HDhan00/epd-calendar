@@ -24,6 +24,7 @@ export default function PhotoScreen({ ctx }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [speedText, setSpeedText] = useState('');
+  const [warn, setWarn] = useState('');
   const abortRef = useRef(false);
 
   const deviceDeg = info ? info.rotation * 90 : null;
@@ -41,8 +42,10 @@ export default function PhotoScreen({ ctx }) {
       log(`量化完成 ${result.ms} ms，${result.frame.length} 字节`);
       if (result.warning) {
         log(`⚠️ ${result.warning}`);
-        setInfo(result.warning);
+        setWarn(result.warning);
         alert('图片可能有问题', result.warning);
+      } else {
+        setWarn('');
       }
     } catch (e) {
       log(`处理失败：${e.message}`);
@@ -72,6 +75,19 @@ export default function PhotoScreen({ ctx }) {
   const onRotate = async (deg) => {
     setRotate(deg);
     if (uri) await process(uri, deg);
+  };
+
+  // 切换色彩浓度：更新 ref（process 里读它）并立即重新量化
+  const onSatLevel = async (lv) => {
+    if (lv === satLevelRef.current) return;
+    satLevelRef.current = lv;
+    setSatLevel(lv);
+    if (!uri) return;
+    try {
+      await process(uri, rotate);
+    } catch (e) {
+      log(`切换色彩浓度失败：${e.message}`);
+    }
   };
 
   const onUpload = async () => {
@@ -199,8 +215,12 @@ export default function PhotoScreen({ ctx }) {
             </Text>
           )}
           <Text style={s.hint}>
-            帧 {frame.length} 字节 · 单片 {client.getChunkSize()} 字节 · 共 {Math.ceil(frame.length / client.getChunkSize())} 帧
+            帧 {frame.length} 字节
+            {client.isUsable()
+              ? ` · 单片 ${client.getChunkSize()} 字节 · 共 ${Math.ceil(frame.length / client.getChunkSize())} 帧`
+              : ' · 未连接设备，连上后显示分包信息'}
           </Text>
+          {!!warn && <Text style={[s.hint, { color: '#b04a3a' }]}>{warn}</Text>}
         </View>
       )}
 

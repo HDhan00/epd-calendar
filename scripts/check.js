@@ -160,6 +160,19 @@ if (!expo.extra || !expo.extra.eas || !expo.extra.eas.projectId) {
   pass(`projectId = ${expo.extra.eas.projectId.slice(0, 8)}…`);
 }
 
+/* --------------------------------------------- 6. JSX 处理函数是否定义 -- */
+
+console.log('\n[6] JSX 事件处理函数');
+{
+  const { execFileSync } = require('child_process');
+  try {
+    const out = execFileSync(process.execPath, [path.join(__dirname, 'handlers.js')], { encoding: 'utf8' });
+    out.trim().split('\n').forEach((l) => { if (l.trim()) console.log(l); });
+  } catch (e) {
+    fail('有界面引用了未定义的处理函数（点击会闪退）');
+  }
+}
+
 /* ------------------------------------------------------------- 汇总 ----- */
 
 console.log('');
