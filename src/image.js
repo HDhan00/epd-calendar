@@ -15,24 +15,80 @@ const P = require('./protocol');
 // 想微调可以直接改这张表（改完预览会立刻反映）。
 const PALETTE = [
   { code: P.PANEL.WHITE, name: '白', r: 255, g: 255, b: 255 },
-  { code: P.PANEL.BLACK, name: '黑', r: 24, g: 24, b: 24 },
+  { code: P.PANEL.BLACK, name: '黑', r: 18, g: 18, b: 20 },
+  // 四色墨水屏的颜料比 LCD 更"实"，黄很亮、红很正。
+  // 之前用的是偏暗的估算值，导致浅色像素全被判成白色，画面发灰。
   { code: P.PANEL.YELLOW, name: '黄', r: 255, g: 208, b: 0 },
-  { code: P.PANEL.RED, name: '红', r: 186, g: 32, b: 44 },
+  { code: P.PANEL.RED, name: '红', r: 205, g: 22, b: 32 },
 ];
+
+// sRGB → 线性光
+function toLinear(c) {
+  const v = c / 255;
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+}
+function fromLinear(v) {
+  const x = v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+  return Math.max(0, Math.min(255, x * 255));
+}
+
+// sRGB → OKLab（感知均匀空间，色差更接近人眼判断）
+function linearToOklab(r, g, b) {
+  const l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b;
+  const m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b;
+  const s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b;
+  const l_ = Math.cbrt(l);
+  const m_ = Math.cbrt(m);
+  const s_ = Math.cbrt(s);
+  return [
+    0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+    1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+    0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_,
+  ];
+}
+
+const PALETTE_LAB = PALETTE.map((c) =>
+  linearToOklab(toLinear(c.r), toLinear(c.g), toLinear(c.b)),
+);
 
 const PALETTE_BY_CODE = {};
 PALETTE.forEach((c) => { PALETTE_BY_CODE[c.code] = c; });
 
-function nearestIndex(r, g, b) {
-  let best = 0;
+// 面板色在 PALETTE 里的下标
+const IDX_WHITE = 0;
+const IDX_BLACK = 1;
+const IDX_YELLOW = 2;
+const IDX_RED = 3;
+
+/**
+ * 在 OKLab 里选最近的面板色，带"能不能用彩色"的门控。
+ *
+ * 为什么要门控：OKLab 只看距离时，中灰(128,128,128)离"红"最近
+ * （红的亮度接近中灰），结果整张灰度图会被判成红色。
+ * 四色屏没有蓝/绿，蓝色和绿色也只能靠黑白网点近似。
+ */
+function nearestIndexLab(lab) {
+  const L = lab[0];
+  const a = lab[1];
+  const b = lab[2];
+  const chroma = Math.sqrt(a * a + b * b);
+
+  // ① 近中性（灰、白、黑）→ 只在黑白之间抖动
+  // ② 偏蓝 / 偏绿 → 调色板里没有对应颜料，也用黑白抖动表现亮度
+  const neutral = chroma < 0.035 || b < -0.015 || a < -0.02;
+  const allowColor = !neutral;
+
+  let best = IDX_WHITE;
   let bestDist = Infinity;
   for (let i = 0; i < PALETTE.length; i++) {
-    const c = PALETTE[i];
-    // 人眼对绿色最敏感，加权欧氏距离比裸 RGB 更接近观感
-    const dr = r - c.r;
-    const dg = g - c.g;
-    const db = b - c.b;
-    const d = 0.299 * dr * dr + 0.587 * dg * dg + 0.114 * db * db;
+    const isColor = (i === IDX_YELLOW || i === IDX_RED);
+    if (isColor && !allowColor) continue;
+    const c = PALETTE_LAB[i];
+    const dl = L - c[0];
+    const da = a - c[1];
+    const db2 = b - c[2];
+    // 亮度权重 1.0，色度权重 2.5：让"像什么颜色"比"多亮"更重要
+    const d = dl * dl + 2.5 * (da * da + db2 * db2);
     if (d < bestDist) { bestDist = d; best = i; }
   }
   return best;
@@ -48,14 +104,28 @@ function nearestIndex(r, g, b) {
 function quantize(rgba, w, h, opts = {}) {
   const serpentine = opts.serpentine !== false;
   const strength = opts.strength === undefined ? 0.85 : opts.strength;
+  // 饱和度增益：四色屏只有 4 个纯色，偏淡的图片必须先把颜色"推"向纯色，
+  // 否则浅粉/浅黄会被判成白色，整张图发灰。
+  const sat = opts.saturation === undefined ? 1.35 : opts.saturation;
 
-  // 浮点缓冲，误差才能累积
+  // 线性光空间的浮点缓冲，误差累积才符合物理叠加
   const buf = new Float32Array(w * h * 3);
   for (let i = 0, p = 0; i < w * h; i++, p += 4) {
-    buf[i * 3] = rgba[p];
-    buf[i * 3 + 1] = rgba[p + 1];
-    buf[i * 3 + 2] = rgba[p + 2];
+    let r = toLinear(rgba[p]);
+    let g = toLinear(rgba[p + 1]);
+    let b = toLinear(rgba[p + 2]);
+    // 提饱和：围绕亮度做线性拉伸
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    r = lum + (r - lum) * sat;
+    g = lum + (g - lum) * sat;
+    b = lum + (b - lum) * sat;
+    buf[i * 3] = Math.min(1, Math.max(0, r));
+    buf[i * 3 + 1] = Math.min(1, Math.max(0, g));
+    buf[i * 3 + 2] = Math.min(1, Math.max(0, b));
   }
+
+  // 预先算好面板色的线性光值，扩散误差时用
+  const PAL_LIN = PALETTE.map((c) => [toLinear(c.r), toLinear(c.g), toLinear(c.b)]);
 
   const indices = new Uint8Array(w * h);
   const counts = { 0: 0, 1: 0, 2: 0, 3: 0 };
@@ -63,9 +133,9 @@ function quantize(rgba, w, h, opts = {}) {
   const spread = (x, y, er, eg, eb, factor) => {
     if (x < 0 || x >= w || y < 0 || y >= h) return;
     const i = (y * w + x) * 3;
-    buf[i] += er * factor * strength;
-    buf[i + 1] += eg * factor * strength;
-    buf[i + 2] += eb * factor * strength;
+    buf[i] = Math.min(1, Math.max(0, buf[i] + er * factor * strength));
+    buf[i + 1] = Math.min(1, Math.max(0, buf[i + 1] + eg * factor * strength));
+    buf[i + 2] = Math.min(1, Math.max(0, buf[i + 2] + eb * factor * strength));
   };
 
   for (let y = 0; y < h; y++) {
@@ -76,14 +146,16 @@ function quantize(rgba, w, h, opts = {}) {
       const r = buf[idx * 3];
       const g = buf[idx * 3 + 1];
       const b = buf[idx * 3 + 2];
-      const pi = nearestIndex(r, g, b);
+
+      const pi = nearestIndexLab(linearToOklab(r, g, b));
       const c = PALETTE[pi];
       indices[idx] = c.code;
       counts[c.code]++;
 
-      const er = r - c.r;
-      const eg = g - c.g;
-      const eb = b - c.b;
+      const lin = PAL_LIN[pi];
+      const er = r - lin[0];
+      const eg = g - lin[1];
+      const eb = b - lin[2];
       const dir = leftToRight ? 1 : -1;
 
       // Floyd–Steinberg 核
@@ -106,6 +178,8 @@ function quantize(rgba, w, h, opts = {}) {
 
   return { indices, preview, stats: counts };
 }
+
+module.exports.__debug = { PALETTE, PALETTE_LAB, toLinear, fromLinear, linearToOklab };
 
 /**
  * 量化结果打包成设备帧：4 像素/字节，最左像素在 bit7:6。

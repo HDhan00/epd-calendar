@@ -56,7 +56,7 @@ function base64ToBytes(b64) {
  * @param {number} rotateDeg 0/90/180/270，先旋转再铺满裁剪
  * @returns {Promise<{frame:Uint8Array, previewUri:string, stats:object, ms:number}>}
  */
-export async function buildFrame(uri, rotateDeg = 0) {
+export async function buildFrame(uri, rotateDeg = 0, opts = {}) {
   const t0 = Date.now();
 
   // 1) 先旋转（旋转会交换宽高），再按目标比例 cover 裁剪
@@ -109,7 +109,9 @@ export async function buildFrame(uri, rotateDeg = 0) {
   }
 
   // 3) 量化 + 打包
-  const { indices, preview, stats } = IMG.quantize(decoded.data, W, H);
+  const { indices, preview, stats } = IMG.quantize(decoded.data, W, H, {
+    saturation: opts.saturation,
+  });
   const frame = IMG.packFrame(indices, W, H);
 
   // 3.5) 异常检测：整张图几乎全白/全黑，通常是图片没真正解码成功

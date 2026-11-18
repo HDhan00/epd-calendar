@@ -14,6 +14,8 @@ export default function PhotoScreen({ ctx }) {
 
   const [uri, setUri] = useState(null);
   const [rotate, setRotate] = useState(0);
+  const [satLevel, setSatLevel] = useState(1); // 0=弱 1=标准 2=强
+  const SAT_VALUES = [1.05, 1.35, 1.8];
   const [slot, setSlot] = useState(0);
   const [building, setBuilding] = useState(false);
   const [preview, setPreview] = useState(null);
@@ -26,11 +28,13 @@ export default function PhotoScreen({ ctx }) {
 
   const deviceDeg = info ? info.rotation * 90 : null;
 
+  const satLevelRef = useRef(1);
+
   const process = useCallback(async (assetUri, deg) => {
     setBuilding(true);
     setPreview(null);
     try {
-      const result = await buildFrame(assetUri, deg);
+      const result = await buildFrame(assetUri, deg, { saturation: SAT_VALUES[satLevelRef.current] });
       setFrame(result.frame);
       setPreview(result.previewUri);
       setStats(statsPercent(result.stats));
@@ -172,6 +176,22 @@ export default function PhotoScreen({ ctx }) {
           {deviceDeg !== null && (
             <Text style={s.hint}>设备当前软件旋转 {deviceDeg}°，建议这里选一样的角度。</Text>
           )}
+
+          <Text style={s.label}>色彩浓度</Text>
+          <View style={s.segRow}>
+            {['弱', '标准', '强'].map((label, lv) => (
+              <TouchableOpacity
+                key={label}
+                style={[s.seg, satLevel === lv && s.segActive]}
+                onPress={() => onSatLevel(lv)}
+              >
+                <Text style={[s.segText, satLevel === lv && s.segTextActive]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={s.hint}>
+            四色屏只有 4 种纯色，偏淡的图片会显得发灰。调高可让红/黄更明显。
+          </Text>
 
           {stats && (
             <Text style={s.hint}>

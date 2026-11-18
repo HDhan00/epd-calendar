@@ -10,7 +10,8 @@
     "build:dev": "eas build -p android --profile development",
     "test": "node scripts/selftest.js",
     "check": "node scripts/check.js",
-    "verify": "node scripts/selftest.js && node scripts/check.js"
+    "verify": "node scripts/selftest.js && node scripts/check.js",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "expo": "~54.0.38",
