@@ -95,7 +95,9 @@ export default class EpdBle {
       const timer = setTimeout(() => finish(null, Array.from(found.values())), durationMs);
 
       // all 模式传 null（不按 Service 过滤）
-      this.manager.startDeviceScan(all ? null : [UUID.SERVICE], { allowDuplicates: false }, (err, dev) => {
+      // 注意：startDeviceScan 可能在同步阶段抛（例如 manager 已销毁），
+      // 那时 timer 已经建好，必须走 finish 收尾，否则要等超时才释放
+      const onDiscover = (err, dev) => {
         if (err) {
           finish(new Error(err.message || '扫描失败'));
           return;
@@ -117,7 +119,13 @@ export default class EpdBle {
           isEpd,
         });
         if (onUpdate) onUpdate(Array.from(found.values()));
-      });
+      };
+
+      try {
+        this.manager.startDeviceScan(all ? null : [UUID.SERVICE], { allowDuplicates: false }, onDiscover);
+      } catch (e) {
+        finish(new Error(`启动扫描失败：${e.message || e}`));
+      }
     });
   }
 

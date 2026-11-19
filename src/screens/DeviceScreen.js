@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import P from '../protocol';
 import { ensureBlePermissions, openAppSettings, isAndroid } from '../permissions';
@@ -7,6 +7,7 @@ import { s, theme } from '../theme';
 export default function DeviceScreen({ ctx }) {
   const { client, connected, info, log, logs, refreshInfo, alert } = ctx;
   const [scanning, setScanning] = useState(false);
+  const scanningRef = useRef(false);   // 同步互斥，state 更新是异步的挡不住连点
   const [connecting, setConnecting] = useState(false);
   const [devices, setDevices] = useState([]);
   const [scanMode, setScanMode] = useState('filtered'); // 'filtered' | 'all'
@@ -17,6 +18,12 @@ export default function DeviceScreen({ ctx }) {
     if (connected && !info) refreshInfo();
   }, [connected]);
 
+  // 切走页面就停扫描：否则会空跑 10~12 秒，还可能在下次进入时撞上残留会话
+  useEffect(() => () => {
+    scanningRef.current = false;
+    try { client.stopScan(); } catch (e) { /* ignore */ }
+  }, [client]);
+
   // trace 是 ble 实例上的可变数组，定期快照一次让界面能刷新
   useEffect(() => {
     const t = setInterval(() => setTrace((client.trace || []).slice(0, 8)), 1000);
@@ -25,7 +32,8 @@ export default function DeviceScreen({ ctx }) {
 
   // all=false 按 Service UUID 过滤（正常使用）；all=true 列出附近全部 BLE 设备（排查用）
   const runScan = useCallback(async (allMode) => {
-    if (scanning) return;
+    if (scanningRef.current) return;
+    scanningRef.current = true;
 
     // Android 12+ 必须先拿到「附近的设备」运行时权限，否则系统直接拒绝扫描
     if (isAndroid()) {
@@ -44,6 +52,7 @@ export default function DeviceScreen({ ctx }) {
         } else {
           Alert.alert('需要蓝牙权限', '扫描设备需要「附近的设备」权限，请允许后重试。');
         }
+        scanningRef.current = false;
         return;
       }
     }
@@ -62,9 +71,10 @@ export default function DeviceScreen({ ctx }) {
       alert('扫描失败', e.message);
       log(`扫描失败：${e.message}`);
     } finally {
+      scanningRef.current = false;
       setScanning(false);
     }
-  }, [scanning, client, log, alert]);
+  }, [client, log, alert]);
 
   const onScan = useCallback(() => runScan(false), [runScan]);
   const onScanAll = useCallback(() => runScan(true), [runScan]);
