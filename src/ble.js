@@ -436,6 +436,17 @@ export default class EpdBle {
     if (r.status.code !== 0) throw this._err('天气刷新失败', r);
   }
 
+  /** 手动设置设备时间（需要固件支持 0x0F 扩展命令） */
+  async setTime(unixSec) {
+    const c = P.cmd.setTime(unixSec);
+    const r = await this.request(c.type, c.payload);
+    if (r.status.code === 4) {
+      throw new Error('设备固件不支持设置时间（需要刷带 SET_TIME 的新固件）');
+    }
+    if (r.status.code !== 0) throw this._err('设置设备时间失败', r);
+    return true;
+  }
+
   async setTodayPlan(text) {
     const c = P.cmd.setTodayPlan(text);
     const r = await this.request(c.type, c.payload);

@@ -31,6 +31,8 @@ const CMD = {
   PHOTO_END: 0x0c,
   PHOTO_ABORT: 0x0d,
   SET_TODAY_PLAN: 0x0e,
+  // 本项目固件扩展命令：手动设置设备时间（上游协议没有）
+  SET_TIME: 0x0f,
 };
 
 const CMD_NAME = {
@@ -306,6 +308,18 @@ const cmd = {
       throw new Error(`今日计划最多 ${LIMITS.TODAY_PLAN_MAX} 字节（当前 ${b.length}）`);
     }
     return { type: CMD.SET_TODAY_PLAN, payload: b };
+  },
+
+  /** 设置设备时间：payload 为 u64 小端 Unix 秒 */
+  setTime: (unixSec) => {
+    const sec = Math.floor(Number(unixSec));
+    if (!Number.isFinite(sec) || sec < 1600000000 || sec > 4102444800) {
+      throw new Error('时间超出可接受范围（2020~2100 年）');
+    }
+    const p = new Uint8Array(8);
+    writeU32LE(p, 0, sec >>> 0);
+    writeU32LE(p, 4, Math.floor(sec / 4294967296) >>> 0);
+    return { type: CMD.SET_TIME, payload: p };
   },
 
   photoBegin: (photoId, slot, totalLen, crc32) => {

@@ -15,6 +15,7 @@ export default function ConfigScreen({ ctx }) {
   const [lon, setLon] = useState('121.4737');
   const [plan, setPlan] = useState('');
   const [busy, setBusy] = useState(false);
+  const [nowText, setNowText] = useState('');
 
   useEffect(() => {
     if (!info) return;
@@ -25,6 +26,35 @@ export default function ConfigScreen({ ctx }) {
     setLon((info.longitudeE7 / 1e7).toFixed(4));
     setPlan(info.todayPlan || '');
   }, [info]);
+
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      setNowText(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} `
+        + `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`);
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // 把手机当前时间写入设备（固件 0x0F 扩展命令）
+  const onSyncTime = async () => {
+    if (!guard() || busy) return;
+    setBusy(true);
+    try {
+      const sec = Math.floor(Date.now() / 1000);
+      await client.setTime(sec);
+      log(`已把手机时间写入设备：${new Date(sec * 1000).toLocaleString()}`);
+      alert('已同步', '设备时间已更新，日历会自动重绘（约 15 秒）。');
+      setTimeout(refreshInfo, 1500);
+    } catch (e) {
+      alert('同步失败', e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const guard = () => {
     if (!connected) {
@@ -103,6 +133,28 @@ export default function ConfigScreen({ ctx }) {
           <Text style={s.btnText}>应用方向</Text>
         </TouchableOpacity>
         <Text style={s.hint}>上传相片时要和这里的方向匹配，否则画面会歪。</Text>
+      </View>
+
+      <View style={s.card}>
+        <Text style={s.cardTitle}>设备时间</Text>
+        <View style={[s.row, s.rowLast]}>
+          <Text style={s.label}>手机当前时间</Text>
+          <Text style={s.value}>{nowText || '—'}</Text>
+        </View>
+        <TouchableOpacity
+          style={[s.btn, (!connected || busy) && s.btnDisabled]}
+          disabled={!connected || busy}
+          onPress={onSyncTime}
+        >
+          <Text style={s.btnText}>把手机时间写入设备</Text>
+        </TouchableOpacity>
+        <Text style={s.hint}>
+          设备没有电池 RTC，断电后时间会归零，需要重新同步一次。
+          写入后固件会存进 NVS，重启时按已运行时长推算，不会立刻丢失。
+        </Text>
+        <Text style={s.hint}>
+          需要固件支持 0x0F 扩展命令；老固件会返回「不支持」。
+        </Text>
       </View>
 
       <View style={s.card}>
